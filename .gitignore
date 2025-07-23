@@ -1,0 +1,13 @@
+__pycache__/
+*.png
+*.mp4
+*.mkv
+*.log
+.tmp/
+temp/
+.venv/
+videos/
+faces/
+models/
+.vscode/
+
