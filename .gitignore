@@ -3,6 +3,7 @@ __pycache__/
 *.mp4
 *.mkv
 *.log
+*.db
 .tmp/
 temp/
 .venv/
@@ -11,3 +12,7 @@ faces/
 models/
 .vscode/
 
+not_a_token.py
+face_images
+circle_videos
+results

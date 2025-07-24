@@ -8,3 +8,6 @@ insightface==0.7.3
 onnxruntime-gpu==1.22.0
 fastapi
 uvicorn
+aiosqlite==0.21.0
+aiogram==3.17.0
+sqlalchemy
