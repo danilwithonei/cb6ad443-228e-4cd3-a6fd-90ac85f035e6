@@ -133,8 +133,12 @@ def process_video_task(task_id: str, source_path: str, output_path: str, target_
 
         target_faces = face_detector.get(target_img)
         if not target_faces:
-            raise ValueError("No faces detected in target image")
-        target_face = target_faces[0]
+            # raise ValueError("No faces detected in target image")
+            target_face = None
+            pass
+        else:
+            
+            target_face = target_faces[0]
 
         # Создание временных файлов
         logger.debug(f"Task {task_id}: Creating temp files")
@@ -167,8 +171,9 @@ def process_video_task(task_id: str, source_path: str, output_path: str, target_
             # Детекция и замена лиц
             source_faces = face_detector.get(frame)
             if source_faces:
-                source_face = source_faces[0]
-                frame = face_swapper.get(frame, source_face, target_face, paste_back=True)
+                if target_face is not None:
+                    source_face = source_faces[0]
+                    frame = face_swapper.get(frame, source_face, target_face, paste_back=True)
 
             cv2.imwrite(frame_path, frame)
 

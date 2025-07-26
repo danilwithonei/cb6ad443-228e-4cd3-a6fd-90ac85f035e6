@@ -13,7 +13,6 @@ from aiogram.fsm.context import FSMContext
 from aiogram.filters import CommandStart, Command
 from aiogram.enums import ParseMode, ContentType
 from aiogram.types import Message
-import threading
 from sqlalchemy.future import select
 
 from database import init_db, async_session_maker, User
@@ -69,6 +68,7 @@ async def check_status(user_id: int, message: types.Message, message_id: int):
                     )
 
                     if progress >= 100:
+                        await asyncio.sleep(5)
                         # Отправляем готовое видео
                         if output_path.exists():
                             with open(output_path, "rb") as video_file:

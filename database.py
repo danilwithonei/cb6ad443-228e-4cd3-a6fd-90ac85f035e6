@@ -23,6 +23,7 @@ class User(Base):
     _video = Column(String)
     _photo = Column(String)
 
+
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
