@@ -137,7 +137,7 @@ def process_video_task(task_id: str, source_path: str, output_path: str, target_
             target_face = None
             pass
         else:
-            
+
             target_face = target_faces[0]
 
         # Создание временных файлов

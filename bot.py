@@ -21,6 +21,7 @@ from not_a_token import NOT_A_TOKEN
 
 import httpx
 import uuid
+import random
 
 # Конфигурация API
 TOKEN = NOT_A_TOKEN
@@ -31,6 +32,8 @@ circle_videos_path = Path("circle_videos")
 face_images_path = Path("face_images")
 circle_videos_path.mkdir(exist_ok=True, parents=True)
 face_images_path.mkdir(exist_ok=True, parents=True)
+
+mjs = "📕🤨👍🤷🙏👿😜🦊👌😄😁😌🤓🥳🤩🥸😎🤓🧐🤨👆🤖🫤💰"
 
 
 def progress_bar(current, total, bar_length=10):
@@ -43,11 +46,12 @@ def progress_bar(current, total, bar_length=10):
 async def check_status(user_id: int, message: types.Message, message_id: int):
     async with async_session_maker() as session:
         result = await session.execute(select(User).filter_by(user_id=user_id))
-        user = result.scalars().first()
+        user: User = result.scalars().first()
         if not user:
             return
 
-        output_path = circle_videos_path / str(user_id)/user._video / "result.mp4"
+        output_path = circle_videos_path / str(user_id) / user._video / "result.mp4"
+        msg_text = ""
 
         while True:
             try:
@@ -57,25 +61,34 @@ async def check_status(user_id: int, message: types.Message, message_id: int):
                 if response.status_code == 200:
                     task_data = response.json()
                     progress = task_data["progress"]
-                
 
                     # Обновляем сообщение с прогрессом
-                    await bot.edit_message_text(
-                        f"Progress:{str(uuid.uuid4())[:4]} [{progress}%]{progress_bar(progress, 100)}",
-                        chat_id=message.chat.id,
-                        message_id=message_id,
-                        parse_mode="html",
-                    )
+                    pb = f"Progress:[{progress}%]{progress_bar(progress, 100)}{random.choice(mjs)}"
+
+                    if msg_text != pb:
+                        msg = await bot.edit_message_text(
+                            pb,
+                            chat_id=message.chat.id,
+                            message_id=message_id,
+                            parse_mode="html",
+                        )
+                        msg_text = msg.text
 
                     if progress >= 100:
                         await asyncio.sleep(5)
                         # Отправляем готовое видео
                         if output_path.exists():
                             with open(output_path, "rb") as video_file:
-                                await bot.send_video_note(
-                                    chat_id=message.chat.id,
-                                    video_note=types.BufferedInputFile(video_file.read(), filename="result.mp4"),
-                                )
+                                if "circle_video.mp4" in user.circle_video_path:
+                                    await bot.send_video_note(
+                                        chat_id=message.chat.id,
+                                        video_note=types.BufferedInputFile(video_file.read(), filename="result.mp4"),
+                                    )
+                                else:
+                                    await bot.send_video(
+                                        chat_id=message.chat.id,
+                                        video=types.BufferedInputFile(video_file.read(), filename="result.mp4"),
+                                    )
                         keyboard = await get_main_keyboard(user_id)
                         await message.answer("What would you like to do next?", reply_markup=keyboard)
                         return
@@ -104,7 +117,7 @@ async def start_processing(user_id: int):
         source_path = user.circle_video_path
         target_face_path = user.face_image_path
 
-        output_dir = circle_videos_path / str(user_id)/user._video
+        output_dir = circle_videos_path / str(user_id) / user._video
         output_path = str(output_dir / "result.mp4")
 
         payload = {"source_path": source_path, "output_path": output_path, "target_face_path": target_face_path}
@@ -155,7 +168,8 @@ async def get_main_keyboard(user_id: int) -> types.InlineKeyboardMarkup:
     kb = [
         [
             types.InlineKeyboardButton(
-                text=f"{'✅ ' if circle_done else ''}Send circle video", callback_data="add_circle"
+                text=f"{'✅ ' if circle_done else ''}Send a video (circle video or regular video)",
+                callback_data="add_circle",
             )
         ],
         [types.InlineKeyboardButton(text=f"{'✅ ' if face_done else ''}Send face image", callback_data="add_face_img")],
@@ -208,7 +222,8 @@ async def add_circle_callback(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(Form.add_circle)
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.answer()
-    await callback.message.answer("Please send me a circle video message")
+    # Обновлено сообщение
+    await callback.message.answer("Please send a video (circle video or regular video)")
 
 
 @dp.callback_query(F.data == "add_face_img")
@@ -235,26 +250,38 @@ async def start_processing_callback(callback: types.CallbackQuery, state: FSMCon
     asyncio.create_task(check_status(user_id, callback.message, bot_msg.message_id))
 
 
-# Handler for circle videos
-@dp.message(Form.add_circle, F.content_type == ContentType.VIDEO_NOTE)
+# Обработчик для исходных видео (кружочных и обычных)
+@dp.message(Form.add_circle, F.content_type.in_({ContentType.VIDEO_NOTE, ContentType.VIDEO}))
 async def handle_circle_video(message: types.Message, state: FSMContext):
-    video_note = message.video_note
-    file_id = video_note.file_id
     user_id = message.from_user.id
+    file_id = None
+    is_video_note = False
+
+    # Определяем тип контента
+    if message.video_note:
+        file_id = message.video_note.file_id
+        is_video_note = True
+    elif message.video:
+        file_id = message.video.file_id
+
+    if not file_id:
+        await message.answer("❌ Failed to get video file")
+        return
 
     async with async_session_maker() as session:
         async with session.begin():
             result = await session.execute(select(User).filter_by(user_id=user_id))
-            user = result.scalars().first()
+            user: User = result.scalars().first()
 
             if user is not None:
-                # Create user-specific directory
+                # Создаем уникальную папку для видео
                 _video = str(uuid.uuid4())
                 user_dir = circle_videos_path / str(user_id) / _video
                 user_dir.mkdir(exist_ok=True, parents=True)
                 user._video = _video
-                # Save video
-                filename = "circle_video.mp4"
+
+                # Определяем имя файла в зависимости от типа
+                filename = "source_video.mp4" if not is_video_note else "circle_video.mp4"
                 file_path = user_dir / filename
 
                 try:
@@ -265,10 +292,10 @@ async def handle_circle_video(message: types.Message, state: FSMContext):
                     user.circle_video_path = str(file_path)
                     await session.commit()
 
-                    await message.answer("✅ Circle video saved successfully!")
+                    await message.answer("✅ Source video saved successfully!")
                     await state.clear()
 
-                    # Show updated menu
+                    # Показываем обновленное меню
                     keyboard = await get_main_keyboard(user_id)
                     await message.answer("What would you like to do next?", reply_markup=keyboard)
 
@@ -323,8 +350,9 @@ async def handle_face_photo(message: types.Message, state: FSMContext):
 
 # Handler for incorrect content types
 @dp.message(Form.add_circle)
-async def handle_wrong_content_circle(message: types.Message):
-    await message.answer("Please send a circle video message (video note) or use /cancel")
+async def handle_wrong_content_source(message: types.Message):
+    # Обновлено сообщение
+    await message.answer("Please send a video (circle video or regular video) or use /cancel")
 
 
 @dp.message(Form.add_face_img)
@@ -362,7 +390,7 @@ async def status_handler(message: types.Message):
 
     status_message = [
         "Your current progress:",
-        f"- Circle video: {'✅ Uploaded' if user.circle_video_path else '❌ Missing'}",
+        f"- Source video: {'✅ Uploaded' if user.circle_video_path else '❌ Missing'}",
         f"- Face photo: {'✅ Uploaded' if user.face_image_path else '❌ Missing'}",
     ]
 
