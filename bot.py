@@ -22,6 +22,7 @@ from not_a_token import NOT_A_TOKEN
 import httpx
 import uuid
 import random
+import subprocess  # Добавлено для конвертации форматов
 
 # Конфигурация API
 TOKEN = NOT_A_TOKEN
@@ -43,6 +44,30 @@ def progress_bar(current, total, bar_length=10):
     return bar
 
 
+async def convert_to_mp4(input_path: Path, output_path: Path):
+    """Конвертирует видео в MP4 формат с помощью ffmpeg"""
+    command = [
+        'ffmpeg',
+        '-i', str(input_path),
+        '-c:v', 'libx264',
+        '-c:a', 'aac',
+        '-y',  # Перезаписать существующий файл
+        str(output_path)
+    ]
+    
+    process = await asyncio.create_subprocess_exec(
+        *command,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+    )
+    
+    _, stderr = await process.communicate()
+    
+    if process.returncode != 0:
+        error_msg = stderr.decode().strip()
+        raise Exception(f"FFmpeg error: {error_msg}")
+
+
 async def check_status(user_id: int, message: types.Message, message_id: int):
     async with async_session_maker() as session:
         result = await session.execute(select(User).filter_by(user_id=user_id))
@@ -52,6 +77,9 @@ async def check_status(user_id: int, message: types.Message, message_id: int):
 
         output_path = circle_videos_path / str(user_id) / user._video / "result.mp4"
         msg_text = ""
+        
+        # Сохраняем тип исходного контента
+        source_was_sticker = user.source_was_sticker
 
         while True:
             try:
@@ -79,16 +107,27 @@ async def check_status(user_id: int, message: types.Message, message_id: int):
                         # Отправляем готовое видео
                         if output_path.exists():
                             with open(output_path, "rb") as video_file:
-                                if "circle_video.mp4" in user.circle_video_path:
-                                    await bot.send_video_note(
+                                video_data = video_file.read()
+                                
+                                # Определяем тип отправляемого контента
+                                if source_was_sticker:
+                                    # Отправляем как видеостикер
+                                    await bot.send_sticker(
                                         chat_id=message.chat.id,
-                                        video_note=types.BufferedInputFile(video_file.read(), filename="result.mp4"),
+                                        sticker=types.BufferedInputFile(video_data, filename="result.webm"),
                                     )
                                 else:
-                                    await bot.send_video(
-                                        chat_id=message.chat.id,
-                                        video=types.BufferedInputFile(video_file.read(), filename="result.mp4"),
-                                    )
+                                    # Отправляем как обычное видео
+                                    if "circle_video.mp4" in user.circle_video_path:
+                                        await bot.send_video_note(
+                                            chat_id=message.chat.id,
+                                            video_note=types.BufferedInputFile(video_data, filename="result.mp4"),
+                                            )
+                                    else:
+                                        await bot.send_video(
+                                            chat_id=message.chat.id,
+                                            video=types.BufferedInputFile(video_data, filename="result.mp4"),
+                                        )
                         keyboard = await get_main_keyboard(user_id)
                         await message.answer("What would you like to do next?", reply_markup=keyboard)
                         return
@@ -168,7 +207,7 @@ async def get_main_keyboard(user_id: int) -> types.InlineKeyboardMarkup:
     kb = [
         [
             types.InlineKeyboardButton(
-                text=f"{'✅ ' if circle_done else ''}Send a video (circle video or regular video)",
+                text=f"{'✅ ' if circle_done else ''}Send a video (circle video, regular video, video sticker)",
                 callback_data="add_circle",
             )
         ],
@@ -248,14 +287,21 @@ async def start_processing_callback(callback: types.CallbackQuery, state: FSMCon
 
     # Запускаем отслеживание статуса как асинхронную задачу
     asyncio.create_task(check_status(user_id, callback.message, bot_msg.message_id))
-
-
-# Обработчик для исходных видео (кружочных и обычных)
-@dp.message(Form.add_circle, F.content_type.in_({ContentType.VIDEO_NOTE, ContentType.VIDEO}))
+@dp.message(
+    Form.add_circle, 
+    F.content_type.in_({
+        ContentType.VIDEO_NOTE, 
+        ContentType.VIDEO, 
+        ContentType.STICKER
+    })
+)
 async def handle_circle_video(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     file_id = None
     is_video_note = False
+    is_sticker = False
+
+    keyboard = await get_main_keyboard(user_id)
 
     # Определяем тип контента
     if message.video_note:
@@ -263,9 +309,18 @@ async def handle_circle_video(message: types.Message, state: FSMContext):
         is_video_note = True
     elif message.video:
         file_id = message.video.file_id
+    elif message.sticker:
+        if not message.sticker.is_video:
+            await message.answer("⚠️ Please send a video sticker (WEBM format). Animated stickers (TGS) are not supported.")
+            await message.answer("What would you like to do next?", reply_markup=keyboard)
+            return
+            
+        file_id = message.sticker.file_id
+        is_sticker = True
 
     if not file_id:
         await message.answer("❌ Failed to get video file")
+        await message.answer("What would you like to do next?", reply_markup=keyboard)
         return
 
     async with async_session_maker() as session:
@@ -279,14 +334,37 @@ async def handle_circle_video(message: types.Message, state: FSMContext):
                 user_dir = circle_videos_path / str(user_id) / _video
                 user_dir.mkdir(exist_ok=True, parents=True)
                 user._video = _video
+                
+                # Сохраняем информацию о том, что был отправлен стикер
+                user.source_was_sticker = is_sticker  # НОВОЕ ПОЛЕ!
 
                 # Определяем имя файла в зависимости от типа
-                filename = "source_video.mp4" if not is_video_note else "circle_video.mp4"
+                if is_video_note:
+                    filename = "circle_video.mp4"
+                elif is_sticker:
+                    filename = "source_video.mp4"
+                else:
+                    filename = "source_video.mp4"
+                    
                 file_path = user_dir / filename
 
                 try:
                     file = await bot.get_file(file_id)
-                    await bot.download_file(file.file_path, file_path)
+                    
+                    if is_sticker:
+                        temp_path = user_dir / "temp_sticker.webm"
+                        await bot.download_file(file.file_path, temp_path)
+                        
+                        try:
+                            await convert_to_mp4(temp_path, file_path)
+                            temp_path.unlink()
+                        except Exception as e:
+                            logging.error(f"Error converting sticker: {e}")
+                            await message.answer("❌ Failed to convert sticker. Please try another file.")
+                            await message.answer("What would you like to do next?", reply_markup=keyboard)
+                            return
+                    else:
+                        await bot.download_file(file.file_path, file_path)
 
                     # Update user record
                     user.circle_video_path = str(file_path)
@@ -302,7 +380,7 @@ async def handle_circle_video(message: types.Message, state: FSMContext):
                 except Exception as e:
                     logging.error(f"Error saving video: {e}")
                     await message.answer("❌ Failed to save video. Please try again.")
-
+                    await message.answer("What would you like to do next?", reply_markup=keyboard)
 
 # Handler for face photos
 @dp.message(Form.add_face_img, F.content_type == ContentType.PHOTO)

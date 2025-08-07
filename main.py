@@ -143,7 +143,7 @@ def process_video_task(task_id: str, source_path: str, output_path: str, target_
         # Создание временных файлов
         logger.debug(f"Task {task_id}: Creating temp files")
         create_temp(source_path)
-        temp_dir = get_temp_directory_path(source_path)
+        get_temp_directory_path(source_path)
 
         # Извлечение кадров
         task_info["message"] = "Extracting frames"
@@ -196,7 +196,7 @@ def process_video_task(task_id: str, source_path: str, output_path: str, target_
         # Восстановление аудио
         task_info["message"] = "Restoring audio"
         logger.info(f"Task {task_id}: Restoring audio")
-        temp_output = get_temp_output_path(source_path)
+        get_temp_output_path(source_path)
         restore_audio(source_path, output_path)
 
         # Финализация
