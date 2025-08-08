@@ -1,7 +1,6 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy import Column, Integer, String, DateTime
-
+from sqlalchemy import Column, Integer, String, DateTime,Boolean
 DATABASE_URL = "sqlite+aiosqlite:///./test.db"
 
 engine = create_async_engine(DATABASE_URL, echo=True)
@@ -22,6 +21,7 @@ class User(Base):
     task_id = Column(String)
     _video = Column(String)
     _photo = Column(String)
+    source_was_sticker = Column(Boolean, default=False)
 
 
 async def init_db():
