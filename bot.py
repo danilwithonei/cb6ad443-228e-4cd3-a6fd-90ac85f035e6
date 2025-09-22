@@ -119,11 +119,13 @@ async def check_status(user_id: int, message: types.Message, message_id: int):
                                 else:
                                     # Отправляем как обычное видео
                                     if "circle_video.mp4" in user.circle_video_path:
+                                        await bot.send_chat_action(chat_id=chat_id, action=ChatAction.UPLOAD_VIDEO_NOTE)
                                         await bot.send_video_note(
                                             chat_id=message.chat.id,
                                             video_note=types.BufferedInputFile(video_data, filename="result.mp4"),
                                             )
                                     else:
+                                        await bot.send_chat_action(chat_id=chat_id, action=ChatAction.UPLOAD_VIDEO)
                                         await bot.send_video(
                                             chat_id=message.chat.id,
                                             video=types.BufferedInputFile(video_data, filename="result.mp4"),
