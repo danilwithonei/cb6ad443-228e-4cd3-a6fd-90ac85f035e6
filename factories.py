@@ -1,5 +1,5 @@
 from dynaconf import settings
-from connections import RedisClient, RabbitMQConnection
+from connections import RedisClient, RabbitMQConnection, S3Connection
 
 
 def create_redis_client() -> RedisClient:
@@ -17,3 +17,7 @@ def create_rabbit_connection() -> RabbitMQConnection:
         username=settings.RABBITMQ_USER,
         password=settings.RABBITMQ_PASS,
     )
+
+
+def create_s3_connection() -> S3Connection:
+    return S3Connection(endpoint_url=settings.ENDPOINT_URL, bucket=settings.BUCKET)

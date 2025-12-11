@@ -16,7 +16,7 @@ async def main():
         await channel.default_exchange.publish(
             aio_pika.Message(
                 body=json.dumps(
-                    {"id": "12378998776", "video_path": "garbage/videos/1.mp4", "image_path": "garbage/faces/sasha.png"},
+                    {"id": "12378998776", "video_path": "1/video.mp4", "image_path": "1/image.png"},
                 ).encode()
             ),
             routing_key="input_queue",

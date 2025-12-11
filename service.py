@@ -2,10 +2,12 @@ import os
 import logging
 from dynaconf import settings
 
-from factories import create_rabbit_connection
-from connections import RabbitMQConnection, BlockingChannel
+from factories import create_rabbit_connection, create_s3_connection
+from connections import RabbitMQConnection, BlockingChannel, S3Connection
 from face_swapper import FaceSwapper
 from models import InputMessage, OutputMessage
+
+from utils import create_temp, clean_temp
 
 
 INPUT_QUEUE = "input_queue"
@@ -20,10 +22,20 @@ logger = logging.getLogger("worker")
 class Service:
     def __init__(
         self,
-        rabbit_mq_conn: RabbitMQConnection = None,
+        rabbit_mq_conn: RabbitMQConnection | None = None,
+        s3_client: S3Connection | None = None,
     ):
         self.rabbit_mq_conn = rabbit_mq_conn
+        self.s3_client = s3_client
         self.f_swapper = FaceSwapper()
+
+    def upload_result_video(self, message_id: str, result_video_path: str) -> str:
+        s3_result_path = os.path.join(
+            message_id,
+            os.path.basename(result_video_path),
+        )
+        self.s3_client.client.upload_file(result_video_path, self.s3_client.bucket, s3_result_path)
+        return s3_result_path
 
     def process_message(self, ch: BlockingChannel, method, properties, body):
         input_message = InputMessage.model_validate_json(body)
@@ -38,16 +50,25 @@ class Service:
 
         try:
             logger.info(f"Processing request ID: {input_message.id}")
-            output_video = os.path.join("results", input_message.id + ".mp4")
+
+            local_path_to_video = self.s3_client.download_file(input_message.video_path, input_message.id)
+            local_path_to_image = self.s3_client.download_file(input_message.image_path, input_message.id)
+            output_video_path = os.path.join(input_message.id, "result.mp4")
 
             output = self.f_swapper.swap_faces(
-                source_video=input_message.video_path,
-                target_face_img=input_message.image_path,
-                output_video=output_video,
+                source_video=local_path_to_video,
+                target_face_img=local_path_to_image,
+                output_video=output_video_path,
                 update_status_func=update_status,
             )
 
-            update_status("done")
+            s3_result_path = self.s3_client.upload_file(
+                local_file_path=output_video_path,
+                s3_file_path=input_message.id,
+                delete_local_file_path=True
+            )
+
+            update_status("done", {"result_path": s3_result_path})
             ch.basic_ack(delivery_tag=method.delivery_tag)
             logger.info(f"Status sent for ID: {input_message.id}")
 
@@ -73,10 +94,9 @@ def main():
 
     os.makedirs("./results", exist_ok=True)
     rabbit_connection = create_rabbit_connection()
+    s3_client = create_s3_connection()
 
-    service = Service(
-        rabbit_mq_conn=rabbit_connection,
-    )
+    service = Service(rabbit_mq_conn=rabbit_connection, s3_client=s3_client)
     service.start()
 
 
