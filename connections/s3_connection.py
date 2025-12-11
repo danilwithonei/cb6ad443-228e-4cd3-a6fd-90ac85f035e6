@@ -27,7 +27,7 @@ class S3Connection:
         s3_file_path: str,
         bucket: str | None = None,
         delete_local_file_path: bool = False,
-    ):
+    ) -> str:
         s3_file_path = os.path.join(s3_file_path, os.path.basename(local_file_path))
 
         self.client.upload_file(
@@ -37,3 +37,4 @@ class S3Connection:
         )
         if delete_local_file_path:
             shutil.rmtree(Path(local_file_path).parent)
+        return s3_file_path
