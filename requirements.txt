@@ -1,13 +1,14 @@
 --extra-index-url https://download.pytorch.org/whl/cu128
 
+pika
+aio_pika
+dynaconf
+redis
+tqdm
+
 numpy>=1.23.5,<2
 opencv-python==4.10.0.84
 torch==2.5.1
 onnx==1.18.0
 insightface==0.7.3
 onnxruntime-gpu==1.22.0
-fastapi
-uvicorn
-aiosqlite==0.21.0
-aiogram==3.17.0
-sqlalchemy
