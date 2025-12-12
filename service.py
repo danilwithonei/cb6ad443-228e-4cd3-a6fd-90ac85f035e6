@@ -1,13 +1,12 @@
 import os
 import logging
 from dynaconf import settings
+from pathlib import Path
 
 from factories import create_rabbit_connection, create_s3_connection
 from connections import RabbitMQConnection, BlockingChannel, S3Connection
 from face_swapper import FaceSwapper
 from models import InputMessage, OutputMessage
-
-from utils import create_temp, clean_temp
 
 
 INPUT_QUEUE = "input_queue"
@@ -51,9 +50,17 @@ class Service:
         try:
             logger.info(f"Processing request ID: {input_message.id}")
 
-            local_path_to_video = self.s3_client.download_file(input_message.video_path, input_message.id)
-            local_path_to_image = self.s3_client.download_file(input_message.image_path, input_message.id)
-            output_video_path = os.path.join(input_message.id, "result.mp4")
+            _o = str(Path(input_message.payload.img_target_path).parent)
+            local_path_to_video = self.s3_client.download_file(
+                input_message.payload.video_source_path,
+                _o,
+            )
+            local_path_to_image = self.s3_client.download_file(
+                input_message.payload.img_target_path,
+                _o,
+            )
+
+            output_video_path = os.path.join(_o, "result.mp4")
 
             output = self.f_swapper.swap_faces(
                 source_video=local_path_to_video,
@@ -64,8 +71,8 @@ class Service:
 
             s3_result_path = self.s3_client.upload_file(
                 local_file_path=output_video_path,
-                s3_file_path=input_message.id,
-                delete_local_file_path=True
+                s3_file_path=_o,
+                delete_local_file_path=True,
             )
 
             update_status("done", {"result_path": s3_result_path})
