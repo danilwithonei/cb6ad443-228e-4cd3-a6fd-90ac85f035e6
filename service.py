@@ -62,7 +62,7 @@ class Service:
 
             output_video_path = os.path.join(_o, "result.mp4")
 
-            output = self.f_swapper.swap_faces(
+            self.f_swapper.swap_faces(
                 source_video=local_path_to_video,
                 target_face_img=local_path_to_image,
                 output_video=output_video_path,

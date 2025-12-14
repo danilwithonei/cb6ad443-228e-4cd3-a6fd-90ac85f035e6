@@ -16,7 +16,14 @@ async def main():
         await channel.default_exchange.publish(
             aio_pika.Message(
                 body=json.dumps(
-                    {"id": "123789987", "video_path": "1/video.mp4", "image_path": "1/image.png"},
+                    {
+                        "id": "123789987",
+                        "payload": {
+                            "video_source_path": "deep_fake_files/68ea432f-c55d-4f43-a8f0-b5ef4c228d00/2.mp4",
+                            "img_target_path": "deep_fake_files/68ea432f-c55d-4f43-a8f0-b5ef4c228d00/photo_2025-12-12_23-05-34.jpg",
+                        },
+                        "created_at": "now",
+                    },
                 ).encode()
             ),
             routing_key="input_queue",
