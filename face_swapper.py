@@ -19,6 +19,8 @@ from utils import (
     is_image,
 )
 
+from models import MessageType, ProcessingMetadata
+
 
 class FaceSwapper:
     def __init__(self, model_path="models/inswapper_128.onnx", providers=None):
@@ -78,8 +80,6 @@ class FaceSwapper:
         start_time = datetime.now()
         self.logger.info(f"Starting processing: {source_video} -> {output_video}")
 
-        update_status_func("start_processing")
-
         try:
             # Валидация входных данных
             self._validate_video_inputs(source_video, target_face_img)
@@ -115,7 +115,7 @@ class FaceSwapper:
                     cv2.imwrite(frame_path, processed_frame)
                     self.current_frame = i
                     if i % 10 == 0:
-                        update_status_func("processing", {"total_frames": total_frames, "current_frame": i + 1})
+                        update_status_func(MessageType.in_process, ProcessingMetadata(total_frames=total_frames, current_frame=i + 1))
 
                 # Сборка видео
                 self.logger.info("Creating output video...")

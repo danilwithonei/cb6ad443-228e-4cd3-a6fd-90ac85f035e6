@@ -6,7 +6,7 @@ from pathlib import Path
 from factories import create_rabbit_connection, create_s3_connection
 from connections import RabbitMQConnection, BlockingChannel, S3Connection
 from face_swapper import FaceSwapper
-from models import InputMessage, OutputMessage
+from models import InputMessage, OutputMessage, MessageType, DoneMetadata
 
 
 INPUT_QUEUE = "input_queue"
@@ -40,7 +40,12 @@ class Service:
         input_message = InputMessage.model_validate_json(body)
 
         def update_status(status: str, metadata: dict | None = None):
-            out_message = OutputMessage(id=input_message.id, status=status, metadata=metadata or {})
+            out_message = OutputMessage(
+                id=input_message.id,
+                client_id=input_message.client_id,
+                message_type=status,
+                metadata=metadata or {},
+            )
             try:
                 ch.basic_publish(exchange="", routing_key=OUTPUT_QUEUE, body=out_message.model_dump_json())
                 logger.debug(f"Status update sent for ID {input_message.id}: {metadata}")
@@ -61,21 +66,24 @@ class Service:
             )
 
             output_video_path = os.path.join(_o, "result.mp4")
+            try:
+                self.f_swapper.swap_faces(
+                    source_video=local_path_to_video,
+                    target_face_img=local_path_to_image,
+                    output_video=output_video_path,
+                    update_status_func=update_status,
+                )
+            except ValueError as e:
+                update_status(status=MessageType.no_target_face, metadata={})
+                logger.error(f"No face on target image: {e}")
+            else:
+                s3_result_path = self.s3_client.upload_file(
+                    local_file_path=output_video_path,
+                    s3_file_path=_o,
+                    delete_local_file_path=True,
+                )
 
-            self.f_swapper.swap_faces(
-                source_video=local_path_to_video,
-                target_face_img=local_path_to_image,
-                output_video=output_video_path,
-                update_status_func=update_status,
-            )
-
-            s3_result_path = self.s3_client.upload_file(
-                local_file_path=output_video_path,
-                s3_file_path=_o,
-                delete_local_file_path=True,
-            )
-
-            update_status("done", {"result_path": s3_result_path})
+                update_status(MessageType.done, DoneMetadata(result_path=s3_result_path))
             ch.basic_ack(delivery_tag=method.delivery_tag)
             logger.info(f"Status sent for ID: {input_message.id}")
 
